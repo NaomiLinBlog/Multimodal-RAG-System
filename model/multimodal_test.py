@@ -23,6 +23,34 @@ def test_add_documents():
             "source_type": "pdf",
             "page_number": 12
         },
+        {
+            "text": "深度學習(Deep Learning)中的神經網路是由多個層次組成，每一層都包含多個神經元。這種層次化的結構使得模型能夠學習更複雜的特徵表示。",
+            "metadata": {
+                "source_type": "pdf",
+                "file_name": "AI_course_notes.pdf",
+                "page": 25,
+                "section": "神經網路架構",
+                "course_name": "人工智慧導論",
+                "semester": "112-1",
+                "language": "zh-tw"
+            },
+            "source_type": "pdf",
+            "page_number": 25
+        },
+        {
+            "text": "卷積神經網路(CNN)的核心概念是使用卷積核進行特徵提取，這些特徵包括邊緣、紋理和更高階的視覺特徵。透過多層卷積和池化操作，模型可以學習到圖像的階層化表示。",
+            "metadata": {
+                "source_type": "pdf",
+                "file_name": "AI_course_notes.pdf",
+                "page": 45,
+                "section": "卷積神經網路",
+                "course_name": "人工智慧導論",
+                "semester": "112-1",
+                "language": "zh-tw"
+            },
+            "source_type": "pdf",
+            "page_number": 45
+        },
         
         # 影片講座來源
         {
@@ -40,6 +68,22 @@ def test_add_documents():
             },
             "source_type": "video",
             "timestamp": "00:15:30"
+        },
+        {
+            "text": "特徵工程是資料預處理中的關鍵步驟。通過合適的特徵轉換和創建，我們可以幫助模型更好地學習數據中的模式。常見的方法包括標準化、正規化和編碼轉換。",
+            "metadata": {
+                "source_type": "video",
+                "file_name": "data_preprocessing_lecture.mp4",
+                "start_time": "00:25:00",
+                "end_time": "00:26:30",
+                "chapter": "特徵工程",
+                "lecturer": "王教授",
+                "course_name": "資料科學實務",
+                "video_quality": "1080p",
+                "transcript_confidence": 0.97
+            },
+            "source_type": "video",
+            "timestamp": "00:25:00"
         }
     ]
 
