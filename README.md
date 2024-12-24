@@ -1,6 +1,11 @@
 # Multimodal-RAG-System
 ## How to run the code
 
+#### Redirect to directory
+ ```shell
+cd Multimodal-RAG-System
+```
+
 #### Create env
  ```shell
  conda env create -f environment.yml
