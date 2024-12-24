@@ -53,7 +53,7 @@ def test_add_documents():
 
 def test_add_pdf():
     """測試上傳 PDF 文件"""
-    pdf_path = "./sample.pdf"  # 請確保此文件存在
+    pdf_path = "./test_files/sample.pdf"  # 請確保此文件存在
     if not os.path.exists(pdf_path):
         print(f"找不到測試 PDF 文件: {pdf_path}")
         return False
