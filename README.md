@@ -21,7 +21,8 @@ cd Multimodal-RAG-System
  python multimodal_main.py
  ```
 
-#### Create another terminal window to start testing (Must redirect to the "model" folder, same directory as "multimodal_main.py")
+#### Create another terminal window to start testing 
+> Must redirect to the "model" folder, same directory as "multimodal_main.py"
  ```shell
  python multimodal_test.py
  ```
