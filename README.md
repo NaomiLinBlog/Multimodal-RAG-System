@@ -11,12 +11,12 @@
  cd model
  ```
 
-### Start up server 
+### Start up server on localhost:8000
  ```shell
  python multimodal_main.py
  ```
 
-### Start testing
+### Create another terminal window to start testing
  ```shell
  python multimodal_test.py
  ```
