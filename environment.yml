@@ -1,4 +1,4 @@
-name: rag
+name: multimodal-rag
 channels:
   - conda-forge
   - defaults
