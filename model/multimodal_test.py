@@ -97,16 +97,18 @@ def test_add_documents():
 
 def test_add_pdf():
     """測試上傳 PDF 文件"""
-    pdf_path = "./test_files/sample.pdf"  # 請確保此文件存在
+    pdf_path = "./test_files/sample.pdf"   # 請確保此文件存在
     if not os.path.exists(pdf_path):
         print(f"找不到測試 PDF 文件: {pdf_path}")
         return False
 
     print("測試上傳 PDF...")
     with open(pdf_path, "rb") as f:
+        # text and image both test
         response = requests.post(
             f"{URL}/add_pdf",
-            files={"file": (os.path.basename(pdf_path), f, "application/pdf")}
+            files={"file": (os.path.basename(pdf_path), f, "application/pdf")},
+            data={"process_images": "true"}  # Add this: process image
         )
     print("上傳 PDF 結果:", response.json())
     return response.status_code == 200
@@ -114,7 +116,7 @@ def test_add_pdf():
 # test.py 中修改的部分
 def test_add_video_transcript():
     """測試上傳影片字幕"""
-    transcript_path = "test_files/sample_transcript.txt"  # 請確保此文件存在
+    transcript_path = "test_files/sample_transcript.txt"
     if not os.path.exists(transcript_path):
         print(f"找不到測試字幕文件: {transcript_path}")
         return False
@@ -138,14 +140,15 @@ def test_query():
     queries = [
         {
             "query": "ECCV 2024 Corner Case Scene Understanding Challenge 的具體內容是什麼",
-            "top_k": 2
+            "top_k": 2,
+            "use_image": True  # Add this: process image
         },
         {
             "query": "什麼是機器學習？",
-            "top_k": 1
+            "top_k": 1,
+            "use_image": True  # Add this: process image
         }
     ]
-    
     
     for query in queries:
         print(f"\n執行查詢: {query['query']}")
@@ -153,15 +156,23 @@ def test_query():
         
         if response.status_code == 200:
             result = response.json()
-            print("\n回答:", result["response"])
-            print("\n來源:")
-            for source in result["sources"]:
-                metadata = source["metadata"]
-                if metadata["source_type"] == "pdf":
-                    print(f"- [PDF] {metadata['file_name']} (第 {metadata['page']} 頁)")
-                elif metadata["source_type"] == "video":
-                    print(f"- [Video] {metadata['file_name']} (時間: {metadata.get('start_time', '')} - {metadata.get('end_time', '')})")
-                print(f"  內容: {source['text']}\n")
+            
+            # text output
+            if 'text' in result:
+                print("\n文本回答:", result["source"])
+                print("\n文本來源:")
+                for source in result["source"]:
+                    metadata = source["metadata"]
+                    if metadata["source_type"] == "pdf":
+                        print(f"- [PDF] {metadata['file_name']} (第 {metadata['page']} 頁)")
+                    elif metadata["source_type"] == "video":
+                        print(f"- [Video] {metadata['file_name']} (時間: {metadata.get('start_time', '')} - {metadata.get('end_time', '')})")
+                    print(f"  內容: {source['text']}\n")
+            
+            # image output
+            if 'image' in result and result['image']:
+                print("\n圖像回答:", result["image"])
+            
         else:
             print("查詢失敗:", response.text)
     
@@ -200,8 +211,8 @@ def run_all_tests():
     
     # 清理測試文件
     import shutil
-    if os.path.exists("test_files"):
-        shutil.rmtree("test_files")
+    #if os.path.exists("test_files"):
+    #    shutil.rmtree("test_files")
 
 if __name__ == "__main__":
     run_all_tests()
