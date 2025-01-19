@@ -8,7 +8,8 @@ cd Multimodal-RAG-System
 
 #### Create env
  ```shell
- conda env create -f environment.yml
+ chmod +x setup.sh
+./setup.sh
  ```
 
 #### Redirect to model folder
@@ -17,6 +18,7 @@ cd Multimodal-RAG-System
  ```
 
 #### Start up server on localhost:8000
+Ensure test_files only contain PDF files!
  ```shell
  python multimodal_main.py
  ```
