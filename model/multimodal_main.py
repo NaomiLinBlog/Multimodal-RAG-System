@@ -1,11 +1,10 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form  # 添加 Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import uvicorn
 from multimodal_rag import MultiModalRAG
 from document_processor import MultiModalDocument
 import os
-
 
 app = FastAPI()
 rag_instance = None
@@ -20,6 +19,7 @@ class DocumentInput(BaseModel):
 class QueryInput(BaseModel):
     query: str
     top_k: Optional[int] = 3
+    use_image: Optional[bool] = True  # Add this: use image RAG or not
 
 @app.on_event("startup")
 async def startup_event():
@@ -27,7 +27,8 @@ async def startup_event():
     rag_instance = MultiModalRAG(
         model_name="yentinglin/Taiwan-LLM-7B-v2.0-base",
         index_folder="./storage",
-        device="cuda"  # 或 "cuda"
+        device="cuda",
+        llava_model_name="llava-hf/llava-interleave-qwen-7b-hf"  # 新增：LLaVA 模型
     )
 
 @app.post("/add_documents")
@@ -50,7 +51,10 @@ async def add_documents(documents: List[DocumentInput]):
     return {"status": "success", "message": f"Added {len(docs)} documents"}
 
 @app.post("/add_pdf")
-async def add_pdf(file: UploadFile = File(...)):
+async def add_pdf(
+    file: UploadFile = File(...),
+    process_images: bool = True  # Add this: process image or not
+):
     if not rag_instance:
         raise HTTPException(status_code=500, detail="RAG system not initialized")
     
@@ -63,7 +67,7 @@ async def add_pdf(file: UploadFile = File(...)):
             content = await file.read()
             f.write(content)
         
-        rag_instance.add_pdf(file_path)
+        rag_instance.add_pdf(file_path, process_images=process_images)
         return {"status": "success", "message": "PDF added successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -74,7 +78,7 @@ async def add_pdf(file: UploadFile = File(...)):
 
 @app.post("/add_video_transcript")
 async def add_video_transcript(
-    video_name: str = Form(...),  # 改用 Form
+    video_name: str = Form(...),  # 改用 Form 
     transcript: UploadFile = File(...)
 ):
     if not rag_instance:
@@ -103,7 +107,8 @@ async def query(query_input: QueryInput):
     
     result = rag_instance.query(
         query_text=query_input.query,
-        top_k=query_input.top_k
+        top_k=query_input.top_k,
+        use_image=query_input.use_image  # Add this: use image or not
     )
     return result
 
