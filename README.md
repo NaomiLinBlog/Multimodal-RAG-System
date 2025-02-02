@@ -1,9 +1,9 @@
 # Multimodal-RAG-System
 ## How to run the code
 
-Nvidia-smi version: 12.3
-nvcc -V: 12.3
-pip version: 25.0
+Nvidia-smi version: 12.3\
+nvcc -V: 12.3\
+pip version: 25.0\
 conda version: 23.7.4
 
 #### Redirect to directory
