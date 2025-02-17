@@ -1,7 +1,9 @@
 import requests
 import json
 import os
-
+from datasets import load_dataset
+import soundfile as sf
+import numpy as np
 # API 網址
 URL = "http://localhost:8000"
 
@@ -23,34 +25,6 @@ def test_add_documents():
             "source_type": "pdf",
             "page_number": 12
         },
-        {
-            "text": "深度學習(Deep Learning)中的神經網路是由多個層次組成，每一層都包含多個神經元。這種層次化的結構使得模型能夠學習更複雜的特徵表示。",
-            "metadata": {
-                "source_type": "pdf",
-                "file_name": "AI_course_notes.pdf",
-                "page": 25,
-                "section": "神經網路架構",
-                "course_name": "人工智慧導論",
-                "semester": "112-1",
-                "language": "zh-tw"
-            },
-            "source_type": "pdf",
-            "page_number": 25
-        },
-        {
-            "text": "卷積神經網路(CNN)的核心概念是使用卷積核進行特徵提取，這些特徵包括邊緣、紋理和更高階的視覺特徵。透過多層卷積和池化操作，模型可以學習到圖像的階層化表示。",
-            "metadata": {
-                "source_type": "pdf",
-                "file_name": "AI_course_notes.pdf",
-                "page": 45,
-                "section": "卷積神經網路",
-                "course_name": "人工智慧導論",
-                "semester": "112-1",
-                "language": "zh-tw"
-            },
-            "source_type": "pdf",
-            "page_number": 45
-        },
         
         # 影片講座來源
         {
@@ -68,22 +42,6 @@ def test_add_documents():
             },
             "source_type": "video",
             "timestamp": "00:15:30"
-        },
-        {
-            "text": "特徵工程是資料預處理中的關鍵步驟。通過合適的特徵轉換和創建，我們可以幫助模型更好地學習數據中的模式。常見的方法包括標準化、正規化和編碼轉換。",
-            "metadata": {
-                "source_type": "video",
-                "file_name": "data_preprocessing_lecture.mp4",
-                "start_time": "00:25:00",
-                "end_time": "00:26:30",
-                "chapter": "特徵工程",
-                "lecturer": "王教授",
-                "course_name": "資料科學實務",
-                "video_quality": "1080p",
-                "transcript_confidence": 0.97
-            },
-            "source_type": "video",
-            "timestamp": "00:25:00"
         }
     ]
 
@@ -97,7 +55,7 @@ def test_add_documents():
 
 def test_add_pdf():
     """測試上傳 PDF 文件"""
-    pdf_path = "./test_files/sample.pdf"  # 請確保此文件存在
+    pdf_path = "./test_files/DLCV_W1.pdf"  # 請確保此文件存在
     if not os.path.exists(pdf_path):
         print(f"找不到測試 PDF 文件: {pdf_path}")
         return False
@@ -131,21 +89,64 @@ def test_add_video_transcript():
     print("上傳字幕結果:", response.json())
     return response.status_code == 200
 
+def test_add_audio():
+    """測試上傳音頻文件"""
+    print("測試音頻處理...")
+    
+    try:
+        # 載入示範資料集
+        from datasets import load_dataset
+        dataset = load_dataset("andybi7676/ntuml2021_long", "default", split="test")
+        sample = dataset[0]["audio"]
+        
+        # 將音頻數據轉換為臨時文件
+        import soundfile as sf
+        import numpy as np
+        import os
+        
+        # 創建臨時目錄
+        os.makedirs("./test_files", exist_ok=True)
+        temp_audio_path = "./test_files/temp_audio.wav"
+        
+        # 保存音頻數據
+        sf.write(temp_audio_path, 
+                np.array(sample["array"]), 
+                sample["sampling_rate"])
+        
+        # 上傳音頻文件
+        print("上傳音頻文件...")
+        with open(temp_audio_path, "rb") as f:
+            response = requests.post(
+                f"{URL}/add_audio",
+                files={"audio_file": ("test_audio.wav", f, "audio/wav")}
+            )
+        
+        print("上傳音頻結果:", response.json())
+        
+        # 清理臨時文件
+        if os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
+            
+        return response.status_code == 200
+        
+    except Exception as e:
+        print(f"測試出錯: {str(e)}")
+        return False
+
 def test_query():
     """測試查詢功能"""
     print("\n測試查詢功能...")
     
     queries = [
+        # {
+        #     "query": "ECCV 2024 Corner Case Scene Understanding Challenge 的具體內容是什麼",
+        #     "top_k": 1
+        # },
         {
-            "query": "ECCV 2024 Corner Case Scene Understanding Challenge 的具體內容是什麼",
+            "query": "Describe the expamle of softmax function.",
             "top_k": 2
-        },
-        {
-            "query": "什麼是機器學習？",
-            "top_k": 1
         }
     ]
-    
     
     for query in queries:
         print(f"\n執行查詢: {query['query']}")
@@ -153,15 +154,37 @@ def test_query():
         
         if response.status_code == 200:
             result = response.json()
-            print("\n回答:", result["response"])
-            print("\n來源:")
-            for source in result["sources"]:
-                metadata = source["metadata"]
-                if metadata["source_type"] == "pdf":
-                    print(f"- [PDF] {metadata['file_name']} (第 {metadata['page']} 頁)")
-                elif metadata["source_type"] == "video":
-                    print(f"- [Video] {metadata['file_name']} (時間: {metadata.get('start_time', '')} - {metadata.get('end_time', '')})")
-                print(f"  內容: {source['text']}\n")
+            
+            # 顯示最終回應
+            print("\n最終回應:", result.get("response", "無回應"))
+            
+            # 顯示來源資訊
+            print("\n參考來源:")
+            for source in result.get("sources", []):
+                metadata = source.get("metadata", {})
+                source_type = metadata.get("source_type", "未知")
+                
+                if source_type == "pdf":
+                    print(f"- [PDF] {metadata.get('file_name')} (第 {metadata.get('page_number')} 頁)")
+                elif source_type == "video":
+                    print(f"- [Video] {metadata.get('file_name')} (時間: {metadata.get('timestamp', '')})")
+                elif source_type == "audio":
+                    print(f"- [Audio] {metadata.get('file_name')}")
+                
+                # 顯示文本內容
+                print(f"  文本內容: {source.get('text', '')}")
+                
+                # 顯示相關性分數
+                if source.get("score") is not None:
+                    print(f"  相關性分數: {source['score']:.4f}")
+                print()
+            
+            # 顯示圖片來源
+            if result.get("image_sources"):
+                print("\n使用的圖片來源:")
+                for img_source in result["image_sources"]:
+                    print(f"- [PDF] {img_source.get('filename')}")
+                    print(f"- 頁碼: {img_source.get('page_number')}")
         else:
             print("查詢失敗:", response.text)
     
@@ -181,9 +204,10 @@ def run_all_tests():
     
     # 運行測試
     test_functions = [
-        test_add_documents,
+        # test_add_documents,
         test_add_pdf,
-        test_add_video_transcript,
+        # test_add_video_transcript,
+        # test_add_audio,
         test_query
     ]
     
@@ -199,9 +223,9 @@ def run_all_tests():
             print(f"✗ {test_func.__name__} 測試出錯: {str(e)}")
     
     # 清理測試文件
-    import shutil
-    if os.path.exists("test_files"):
-        shutil.rmtree("test_files")
+    # import shutil
+    # if os.path.exists("test_files"):
+    #     shutil.rmtree("test_files")
 
 if __name__ == "__main__":
     run_all_tests()

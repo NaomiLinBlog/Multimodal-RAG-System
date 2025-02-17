@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 import torch
+from audio_processor import AudioProcessor
 from document_processor import DocumentProcessor, MultiModalDocument
 from llama_index.core import (
     VectorStoreIndex,
@@ -14,30 +15,35 @@ from llama_index.core.node_parser import SimpleNodeParser
 from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.prompts import PromptTemplate
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoProcessor, AutoModelForImageTextToText
 import os
 import time
+from PIL import Image
+import io
+import base64
 
 class MultiModalRAG:
     def __init__(
         self,
         index_folder: str = "./storage",
-        model_name: str = "yentinglin/Taiwan-LLM-7B-v2.0-base",
+        files_folder: str = "./test_files",
+        model_name: str = "Qwen/Qwen2-VL-2B-Instruct",
         embed_model_name: str = "BAAI/bge-large-zh-v1.5",
-        device: str = None,  # 自動選擇設備
-        load_in_8bit: bool = True  # 啟用 8-bit 量化
+        audio_model_id: str = "andybi7676/cool-whisper-hf",
+        device: str = None,
+        load_in_8bit: bool = True
     ):
         # 自動選擇設備
-        self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-        if self.device == "cuda":
-            # 清理 CUDA 緩存
+        self.device = device or ("cuda:0" if torch.cuda.is_available() else "cpu")
+        if self.device == "cuda:0":
             torch.cuda.empty_cache()
-        """
-        初始化多模態 RAG 系統
-        """
+            
         self.index_folder = index_folder
+        self.files_folder = files_folder
         self.doc_processor = DocumentProcessor()
-        
+        self.image_retriever = self.doc_processor.initialize_image_retriever(files_folder)
+        self.audio_processor = AudioProcessor(model_id=audio_model_id)
+
         # 設定嵌入模型
         Settings.embed_model = HuggingFaceEmbedding(
             model_name=embed_model_name,
@@ -55,31 +61,33 @@ class MultiModalRAG:
         
     def setup_llm(self, model_name: str, load_in_8bit: bool):
         """設定語言模型"""
-        tokenizer = AutoTokenizer.from_pretrained(
+        self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=True
         )
         
         model_kwargs = {
             "trust_remote_code": True,
-            "torch_dtype": torch.float16 if self.device == "cuda" else torch.float32,
+            "torch_dtype": torch.float16 if self.device == "cuda:0" else torch.float32,
+            "device_map": "cuda:0",
         }
         
-        if self.device == "cuda" and load_in_8bit:
+        if self.device == "cuda:0" and load_in_8bit:
             model_kwargs.update({
-                "device_map": "auto",
                 "load_in_8bit": True,
             })
-        
-        model = AutoModelForCausalLM.from_pretrained(
+            
+        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.model = AutoModelForImageTextToText.from_pretrained(
             model_name,
             **model_kwargs
         )
-        
+
+        # For llama_index compatibility
         self.llm = HuggingFaceLLM(
-            tokenizer=tokenizer,
-            model=model,
-            device_map="auto" if self.device == "cuda" else None,
+            tokenizer=self.tokenizer,
+            model=self.model,
+            device_map="cuda:0",
             context_window=512,
             max_new_tokens=128,
             generate_kwargs={
@@ -100,9 +108,9 @@ class MultiModalRAG:
             {context_str}
             ----------------
             
-            根據上述上下文，請回答問題：{query_str}
+            根據上述上下文和圖片資訊，請回答問題：{query_str}
             
-            請以繁體中文回答，並盡可能提供完整和準確的資訊。如果上下文中沒有相關信息，請誠實地說明無法回答。回答："""
+            請以繁體中文回答，並盡可能提供完整和準確的資訊。如果沒有相關信息，請誠實地說明無法回答。回答："""
         )
         
     def load_or_create_index(self):
@@ -116,7 +124,7 @@ class MultiModalRAG:
             )
         else:
             self.index = None
-    
+            
     def add_documents(self, documents: List[MultiModalDocument]):
         """添加文檔到索引"""
         parser = SimpleNodeParser.from_defaults(
@@ -124,8 +132,7 @@ class MultiModalRAG:
             chunk_overlap=30,
             include_metadata=True
         )
-        
-        # 將 MultiModalDocument 轉換為 llama_index Document
+
         llama_docs = [
             Document(
                 text=doc.text,
@@ -165,43 +172,175 @@ class MultiModalRAG:
             video_path
         )
         self.add_documents(documents)
-    
+
+    def extract_assistant_response(self, response: str) -> str:
+        markers = [
+            "assistant", "assistant:", "ASSISTANT", "ASSISTANT:"
+        ]
+        
+        # response = response.split("human:")[-1].split("user")[-1]
+        
+        for marker in markers:
+            if marker in response:
+                return response.split(marker)[-1].strip()
+        
+        return response.strip()
+
     def query(
-        self,
-        query_text: str,
-        top_k: int = 3,
-        response_mode: str = "tree_summarize"
-    ) -> Dict[str, Any]:
-        """查詢系統"""
-        if not self.index:
-            raise ValueError("索引尚未建立，請先添加文件")
+            self,
+            query_text: str,
+            top_k: int = 3,
+            response_mode: str = "tree_summarize",
+        ) -> Dict[str, Any]:
+            """整合查詢系統（優化記憶體使用）"""
+            if not self.index:
+                raise ValueError("索引尚未建立，請先添加文件")
+                
+            responses = {}
+            start = time.time()
+            print("開始查詢流程...")
             
-        start = time.time()
-        retriever = VectorIndexRetriever(
-            index=self.index,
-            similarity_top_k=top_k
-        )
-        print(f"設定檢索器時間: {time.time() - start:.2f}秒")
-        
-        t1 = time.time()
-        query_engine = RetrieverQueryEngine.from_args(
-            retriever=retriever,
-            text_qa_template=self.qa_template,
-            response_mode=response_mode
-        )
-        print(f"建立查詢引擎時間: {time.time() - t1:.2f}秒")
-        
-        t2 = time.time()
-        response = query_engine.query(query_text)
-        print(f"生成回答時間: {time.time() - t2:.2f}秒")
-        
-        sources = [{
-            "text": node.text,
-            "score": node.score if hasattr(node, 'score') else None,
-            "metadata": node.metadata
-        } for node in response.source_nodes]
-        
-        return {
-            "response": str(response),
-            "sources": sources
-        }
+            # 1. 文本檢索
+            print("執行文本檢索...")
+            try:
+                # 清理 CUDA 緩存
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                retriever = VectorIndexRetriever(
+                    index=self.index,
+                    similarity_top_k=top_k
+                )
+                
+                query_engine = RetrieverQueryEngine.from_args(
+                    retriever=retriever,
+                    text_qa_template=self.qa_template,
+                    response_mode=response_mode
+                )
+                
+                text_response = query_engine.query(query_text)
+                text_content = str(text_response)
+                
+                # 收集文本來源
+                sources = [{
+                    "text": node.text,
+                    "score": node.score if hasattr(node, 'score') else None,
+                    "metadata": node.metadata
+                } for node in text_response.source_nodes]
+                
+                responses['sources'] = sources
+                
+            except Exception as e:
+                print(f"文本檢索錯誤: {str(e)}")
+                return {"response": "文本檢索過程發生錯誤", "sources": [], "image_sources": []}
+            
+            # 2. 圖片檢索
+            print("執行圖片檢索...")
+            try:
+                # 再次清理 CUDA 緩存
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+
+                image_results = self.image_retriever.search(query_text, k=min(top_k, 2))  # 限制圖片數量
+                print(f"檢索到的圖片數量: {len(image_results)}")
+                for idx, result in enumerate(image_results):
+                    print(f"圖片 {idx + 1} - 頁碼: {result.page_num}")
+                    print(f"圖片 {idx + 1} - 相似度分数: {result.score if hasattr(result, 'score') else 'N/A'}")
+    
+                # 準備圖片
+                images = []
+                max_size = (224, 224)
+                for result in image_results:
+                    try:
+                        image_bytes = base64.b64decode(result.base64)
+                        image = Image.open(io.BytesIO(image_bytes))
+                        # 調整圖片大小
+                        image.thumbnail(max_size, Image.Resampling.LANCZOS)
+                        images.append(image)
+                    except Exception as img_error:
+                        print(f"圖片處理錯誤: {str(img_error)}")
+                        continue
+                
+                if not images:
+                    raise ValueError("沒有可用的圖片")
+
+                # 準備多模態輸入
+                conversation = [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"{query_text}\n\n文本上下文:\n{text_content}\n\n相關頁面:{', '.join([str(r.page_num) for r in image_results])}"
+                        }
+                    ]
+                }]
+                
+                # 分批處理圖片
+                for img in images:
+                    conversation[0]["content"].append({"type": "image", "image": img})
+                
+                print("處理多模態輸入...")
+                
+                with torch.cuda.amp.autocast():
+                    inputs = self.processor(
+                        images=images,
+                        text=self.processor.apply_chat_template(
+                            conversation,
+                            tokenize=False,
+                            add_generation_prompt=True
+                        ),
+                        return_tensors="pt"
+                    ).to(self.device)
+                    
+                    with torch.no_grad(): 
+                        output_ids = self.model.generate(
+                            **inputs,
+                            max_new_tokens=256, 
+                            do_sample=True,
+                            temperature=0.7,
+                            top_p=0.9,
+                        )
+                    
+                    final_response = self.processor.batch_decode(
+                        output_ids,
+                        skip_special_tokens=True
+                    )[0]
+                    
+                    final_response = self.extract_assistant_response(final_response)
+                    print(type(final_response))
+
+                    del inputs
+                    del output_ids
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                
+            except Exception as e:
+                print(f"圖片處理錯誤: {str(e)}")
+                final_response = text_content
+                image_results = []
+            
+            # 最終回應
+            result = {
+                "response": final_response,
+                "sources": sources,
+                "image_sources": [
+                    {
+                        "page_number": r.page_num,
+                        "doc_id": getattr(r, 'doc_id', 'N/A'),
+                        "filename": (
+                            os.listdir(self.files_folder)[r.doc_id] 
+                            if 0 <= r.doc_id < len(os.listdir(self.files_folder)) 
+                            else 'N/A'
+                        ),
+                        "score": getattr(r, 'score', 'N/A')
+                    } 
+                    for r in image_results
+                ] if 'image_results' in locals() else []
+            }
+            
+            print(f"查詢完成，總耗時: {time.time() - start:.2f}秒")
+            
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            return result

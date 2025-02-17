@@ -2,6 +2,9 @@ from typing import Dict, Any, Optional, List
 import fitz  # PyMuPDF for PDF processing
 import os
 from dataclasses import dataclass
+from PIL import Image
+from pathlib import Path
+from byaldi import RAGMultiModalModel
 
 @dataclass
 class MultiModalDocument:
@@ -15,9 +18,26 @@ class MultiModalDocument:
 
 class DocumentProcessor:
     """處理不同類型文檔的類"""
-    
+    # Add this
+    def initialize_image_retriever(self, pdf_path: str, index_name: str = "ds1") -> RAGMultiModalModel:
+        """Initialize and build the index for the image retriever"""
+        index_path = Path("./storage/.byaldi") / index_name
+        if os.path.exists(index_path):
+            print("Loading existing image index...")
+            image_retriever = RAGMultiModalModel.from_index(index_name)
+        else:
+            print("Creating new image index...")
+            image_retriever = RAGMultiModalModel.from_pretrained("vidore/colpali")
+            image_retriever.index(
+                input_path=Path(pdf_path),
+                index_name=index_name,
+                store_collection_with_index=True,
+                overwrite=True
+            )
+        return image_retriever
+       
     def process_pdf(self, pdf_path: str) -> List[MultiModalDocument]:
-        """處理 PDF 文件"""
+        """處理 PDF 文件，提取文本和圖片"""
         if not os.path.exists(pdf_path):
             raise FileNotFoundError(f"PDF file not found: {pdf_path}")
             
@@ -57,7 +77,6 @@ class DocumentProcessor:
         
         with open(transcript_path, 'r', encoding='utf-8') as f:
             for line in f:
-                # 假設格式: "HH:MM:SS 文本內容"
                 if ' ' in line:
                     timestamp, text = line.strip().split(' ', 1)
                     
